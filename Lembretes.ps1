@@ -53,6 +53,18 @@ function Obter-ProximaData([datetime]$dataAtual, [string]$recorrencia) {
     return $proxima
 }
 
+function Emitir-BipDuplo {
+    try {
+        [Console]::Beep(880, 180)
+        Start-Sleep -Milliseconds 120
+        [Console]::Beep(1040, 180)
+    } catch {
+        [System.Media.SystemSounds]::Exclamation.Play()
+        Start-Sleep -Milliseconds 180
+        [System.Media.SystemSounds]::Exclamation.Play()
+    }
+}
+
 function Ler-Xaml([string]$xaml) {
     $reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
     return [Windows.Markup.XamlReader]::Load($reader)
@@ -268,7 +280,7 @@ $btnNovo.Add_Click({Abrir-Criacao})
 $filtro.Add_SelectionChanged({Atualizar-Mural})
 $timer=New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval=[TimeSpan]::FromSeconds(15)
-$timer.Add_Tick({foreach($lem in @($script:lembretes|Where-Object{-not $_.Concluido})){if([datetime]$lem.DataHora -le (Get-Date) -and -not $script:avisados.Contains([string]$lem.Id)){[void]$script:avisados.Add([string]$lem.Id); $window.Activate(); $window.Topmost=$true; [System.Windows.MessageBox]::Show("$($lem.Texto)`n`nPrioridade: $($lem.Prioridade)",'Hora do lembrete!')|Out-Null; $window.Topmost=$false}}})
+$timer.Add_Tick({foreach($lem in @($script:lembretes|Where-Object{-not $_.Concluido})){if([datetime]$lem.DataHora -le (Get-Date) -and -not $script:avisados.Contains([string]$lem.Id)){[void]$script:avisados.Add([string]$lem.Id); $window.Activate(); $window.Topmost=$true; Emitir-BipDuplo; [System.Windows.MessageBox]::Show("$($lem.Texto)`n`nPrioridade: $($lem.Prioridade)",'Hora do lembrete!')|Out-Null; $window.Topmost=$false}}})
 
 Carregar-Lembretes
 Atualizar-Mural
