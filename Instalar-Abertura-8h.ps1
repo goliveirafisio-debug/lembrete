@@ -1,12 +1,12 @@
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $launcher = Join-Path $appDir 'Abrir-Lembretes.cmd'
-$taskName = 'Meus Lembretes - abrir as 8h'
+$taskName = 'Meus Lembretes - primeiro login do dia'
 
-$action = New-ScheduledTaskAction -Execute $launcher
-$trigger = New-ScheduledTaskTrigger -Daily -At '08:00'
+$action = New-ScheduledTaskAction -Execute $launcher -Argument '-Automatico'
+$trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Abre o programa Meus Lembretes todos os dias às 8h.' -Force | Out-Null
-Write-Host 'Instalação concluída: o programa abrirá diariamente às 08:00.'
-
+Get-ScheduledTask -TaskName 'Meus Lembretes - abrir as 8h' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Abre o Mural de Lembretes apenas no primeiro login de cada dia.' -Force | Out-Null
+Write-Host 'Instalação concluída: o Mural abrirá no primeiro login de cada dia.'

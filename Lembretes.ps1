@@ -1,6 +1,10 @@
-﻿Add-Type -AssemblyName PresentationFramework
+param([switch]$Automatico)
+
+Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Windows.Forms
+Import-Module (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'Lembretes.Core.psm1') -Force
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -13,46 +17,26 @@ public static class IdentidadeLembretes {
 [System.Windows.Media.RenderOptions]::ProcessRenderMode = [System.Windows.Interop.RenderMode]::SoftwareOnly
 
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dataFile = Join-Path $appDir 'lembretes.json'
+$dataFile = Get-DataPath -AppDirectory $appDir
 $script:lembretes = @()
 $script:avisados = [System.Collections.Generic.HashSet[string]]::new()
 
+if ($Automatico) {
+    $stateDir = Join-Path $env:LOCALAPPDATA 'MuralDeLembretes'
+    [System.IO.Directory]::CreateDirectory($stateDir) | Out-Null
+    $marker = Join-Path $stateDir 'ultimo-inicio-automatico.txt'
+    $today = (Get-Date).ToString('yyyy-MM-dd')
+    if ((Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw -ErrorAction SilentlyContinue).Trim() -eq $today)) { exit }
+    [System.IO.File]::WriteAllText($marker, $today, [System.Text.UTF8Encoding]::new($false))
+}
+
 function Carregar-Lembretes {
-    if (Test-Path -LiteralPath $dataFile) {
-        try {
-            $dados = Get-Content -LiteralPath $dataFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($null -ne $dados) {
-                $script:lembretes = @($dados)
-                foreach ($lem in $script:lembretes) {
-                    if ($null -eq $lem.PSObject.Properties['Recorrencia']) {
-                        $lem | Add-Member -NotePropertyName Recorrencia -NotePropertyValue 'Nenhuma'
-                    }
-                }
-            }
-        } catch {
-            [System.Windows.MessageBox]::Show('Não foi possível ler os lembretes salvos.', 'Mural') | Out-Null
-        }
-    }
+    try { $script:lembretes = @(Read-Lembretes -DataPath $dataFile) }
+    catch { [System.Windows.MessageBox]::Show($_.Exception.Message, 'Mural') | Out-Null; $script:lembretes = @() }
 }
 
-function Salvar-Lembretes {
-    $script:lembretes | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $dataFile -Encoding UTF8
-}
-
-function Obter-ProximaData([datetime]$dataAtual, [string]$recorrencia) {
-    $proxima = $dataAtual
-    do {
-        $proxima = switch ($recorrencia) {
-            'Semanal' { $proxima.AddDays(7) }
-            'Quinzenal' { $proxima.AddDays(15) }
-            'Mensal' { $proxima.AddMonths(1) }
-            'Anual' { $proxima.AddYears(1) }
-            default { return $proxima }
-        }
-    } while ($proxima -le (Get-Date))
-    return $proxima
-}
-
+function Salvar-Lembretes { Save-Lembretes -Lembretes $script:lembretes -DataPath $dataFile }
+function Obter-ProximaData([datetime]$dataAtual, [string]$recorrencia) { Get-NextOccurrence -CurrentDate $dataAtual -Recurrence $recorrencia }
 function Emitir-BipDuplo {
     try {
         [Console]::Beep(880, 180)
@@ -130,6 +114,27 @@ $iconeJanela = Join-Path $appDir 'assets\icone-postits.ico'
 if (Test-Path -LiteralPath $iconeJanela) {
     $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create((New-Object System.Uri($iconeJanela, [System.UriKind]::Absolute)))
 }
+$script:allowExit = $false
+$trayIcon = New-Object System.Windows.Forms.NotifyIcon
+$trayIcon.Text = 'Mural de Lembretes'
+$trayIcon.Icon = if (Test-Path -LiteralPath $iconeJanela) { [System.Drawing.Icon]::new($iconeJanela) } else { [System.Drawing.SystemIcons]::Information }
+$contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$openItem = New-Object System.Windows.Forms.ToolStripMenuItem('Abrir mural')
+$exitItem = New-Object System.Windows.Forms.ToolStripMenuItem('Encerrar')
+$openItem.Add_Click({ $window.Show(); $window.WindowState = 'Normal'; $window.Activate() })
+$exitItem.Add_Click({ $script:allowExit = $true; $trayIcon.Visible = $false; $trayIcon.Dispose(); $window.Close() })
+[void]$contextMenu.Items.Add($openItem); [void]$contextMenu.Items.Add($exitItem)
+$trayIcon.ContextMenuStrip = $contextMenu
+$trayIcon.Add_DoubleClick({ $window.Show(); $window.WindowState = 'Normal'; $window.Activate() })
+$trayIcon.Visible = $true
+$window.Add_Closing({
+    param($sender, $eventArgs)
+    if (-not $script:allowExit) {
+        $eventArgs.Cancel = $true
+        $window.Hide()
+        $trayIcon.ShowBalloonTip(3000, 'Mural de Lembretes', 'O mural continua ativo na bandeja para emitir seus avisos.', [System.Windows.Forms.ToolTipIcon]::Info)
+    }
+})
 $mural = $window.FindName('Mural')
 $filtro = $window.FindName('Filtro')
 $status = $window.FindName('Status')
