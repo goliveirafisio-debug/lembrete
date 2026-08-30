@@ -5,6 +5,7 @@ function Assert-True { param([bool]$Condition,[string]$Message) if (-not $Condit
 $reference = [datetime]'2026-08-30T12:00:00'
 Assert-Equal (Get-NextOccurrence -CurrentDate ([datetime]'2026-08-28T08:00:00') -Recurrence 'Semanal' -Now $reference) ([datetime]'2026-09-04T08:00:00') 'recorrencia semanal'
 Assert-Equal (Get-NextOccurrence -CurrentDate ([datetime]'2026-08-01T08:00:00') -Recurrence 'Mensal' -Now $reference) ([datetime]'2026-09-01T08:00:00') 'recorrencia mensal'
+Assert-Equal (Get-NextOccurrence -CurrentDate ([datetime]'2026-08-15T09:00:00') -Recurrence 'Anual' -Now $reference) ([datetime]'2027-08-15T09:00:00') 'aniversario anual avanca para o proximo ano'
 Assert-Equal (Get-NextOccurrence -CurrentDate ([datetime]'2026-08-30T08:00:00') -Recurrence 'Nenhuma' -Now $reference) ([datetime]'2026-08-30T08:00:00') 'sem recorrencia preserva a data'
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('mural-lembretes-tests-' + [guid]::NewGuid())
 [System.IO.Directory]::CreateDirectory($tempDirectory) | Out-Null

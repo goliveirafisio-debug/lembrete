@@ -18,6 +18,7 @@ public static class IdentidadeLembretes {
 
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dataFile = Get-DataPath -AppDirectory $appDir
+$historyFile = Join-Path $appDir 'lembretes.quitados.json'
 $script:lembretes = @()
 $script:avisados = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -180,6 +181,22 @@ function Nova-Etiqueta([string]$texto, [string]$cor) {
     return $border
 }
 
+function Dar-Quitacao([string]$id) {
+    $lembrete = @($script:lembretes | Where-Object { $_.Id -eq $id }) | Select-Object -First 1
+    if ($null -eq $lembrete) { return }
+    $recorrencia = if ([string]::IsNullOrWhiteSpace([string]$lembrete.Recorrencia)) { 'Nenhuma' } else { [string]$lembrete.Recorrencia }
+    $acao = if ($recorrencia -eq 'Nenhuma') { 'retirar este lembrete do mural ativo' } else { "registrar a quitação e programar a próxima ocorrência $recorrencia" }
+    if ([System.Windows.MessageBox]::Show("Confirmar quitação de '$($lembrete.Texto)'?`n`nIsso irá $acao.", 'Dar quitação', 'YesNo', 'Question') -ne 'Yes') { return }
+    try { $historico = @(Read-Lembretes -DataPath $historyFile) } catch { [System.Windows.MessageBox]::Show($_.Exception.Message, 'Mural') | Out-Null; return }
+    $historico += [pscustomobject]@{ Id=$lembrete.Id; Texto=$lembrete.Texto; Prioridade=$lembrete.Prioridade; DataHora=$lembrete.DataHora; Recorrencia=$recorrencia; Concluido=$true; QuitadoEm=(Get-Date).ToString('o'); Resultado=(if ($recorrencia -eq 'Nenhuma') { 'Quitado e retirado do mural' } else { 'Quitado; próxima ocorrência criada' }) }
+    try {
+        Save-Lembretes -Lembretes $historico -DataPath $historyFile
+        if ($recorrencia -eq 'Nenhuma') { $script:lembretes = @($script:lembretes | Where-Object { $_.Id -ne $id }) }
+        else { $lembrete.DataHora = (Obter-ProximaData ([datetime]$lembrete.DataHora) $recorrencia).ToString('o'); $lembrete.Concluido=$false; [void]$script:avisados.Remove($id) }
+        Salvar-Lembretes
+        Atualizar-Mural
+    } catch { [System.Windows.MessageBox]::Show("Não foi possível registrar a quitação: $($_.Exception.Message)", 'Mural') | Out-Null }
+}
 function Atualizar-Mural {
     $mural.Children.Clear()
     $ordem = @{ 'Alta'=0; 'Média'=1; 'Baixa'=2 }
@@ -210,7 +227,7 @@ function Atualizar-Mural {
         $etiqueta = if($lem.Prioridade -eq 'Alta'){'#EF5D78'}elseif($lem.Prioridade -eq 'Média'){'#E2A91B'}else{'#28A58B'}
 
         $card = New-Object System.Windows.Controls.Border
-        $card.Width=285; $card.Height=205; $card.Margin=10; $card.Padding=18; $card.CornerRadius=20
+        $card.Width=285; $card.MinHeight=205; $card.Margin=10; $card.Padding=18; $card.CornerRadius=20
         $card.Background=[System.Windows.Media.BrushConverter]::new().ConvertFromString($fundo)
         $card.BorderBrush=[System.Windows.Media.BrushConverter]::new().ConvertFromString('#E2DEE7'); $card.BorderThickness=1
         $grid=New-Object System.Windows.Controls.Grid
@@ -227,14 +244,14 @@ function Atualizar-Mural {
         [System.Windows.Controls.Grid]::SetRow($top,0); [void]$grid.Children.Add($top)
 
         $body=New-Object System.Windows.Controls.StackPanel; $body.Margin='0,15,0,10'
-        $txt=New-Object System.Windows.Controls.TextBlock; $txt.Text=[string]$lem.Texto; $txt.FontSize=17; $txt.FontWeight='SemiBold'; $txt.Foreground=[System.Windows.Media.BrushConverter]::new().ConvertFromString('#34323A'); $txt.TextWrapping='Wrap'; $txt.MaxHeight=58
+        $txt=New-Object System.Windows.Controls.TextBlock; $txt.Text=[string]$lem.Texto; $txt.FontSize=17; $txt.FontWeight='SemiBold'; $txt.Foreground=[System.Windows.Media.BrushConverter]::new().ConvertFromString('#34323A'); $txt.TextWrapping='Wrap'; $txt.TextTrimming='None'
         if($lem.Concluido){$txt.TextDecorations='Strikethrough'; $txt.Opacity=.55}
         $date=New-Object System.Windows.Controls.TextBlock; $date.Text=$quando.ToString('ddd, dd/MM • HH:mm'); $date.FontSize=12; $date.Foreground=[System.Windows.Media.BrushConverter]::new().ConvertFromString('#6D6978'); $date.Margin='0,9,0,0'
         [void]$body.Children.Add($txt); [void]$body.Children.Add($date); [System.Windows.Controls.Grid]::SetRow($body,1); [void]$grid.Children.Add($body)
 
         $actions=New-Object System.Windows.Controls.DockPanel
-        $done=New-Object System.Windows.Controls.Button; $done.Content=if($lem.Concluido){'Concluído'}elseif($recorrencia -ne 'Nenhuma'){'Próxima ocorrência'}else{'Concluir'}; $done.Tag=$lem.Id; $done.Style=$window.Resources['SoftButton']; $done.IsEnabled=-not $lem.Concluido
-        $done.Add_Click({param($sender,$e); foreach($r in $script:lembretes){if($r.Id -eq [string]$sender.Tag){$tipo=if([string]::IsNullOrWhiteSpace([string]$r.Recorrencia)){'Nenhuma'}else{[string]$r.Recorrencia}; if($tipo -eq 'Nenhuma'){$r.Concluido=$true}else{$r.DataHora=(Obter-ProximaData ([datetime]$r.DataHora) $tipo).ToString('o'); $r.Concluido=$false; [void]$script:avisados.Remove([string]$r.Id)}}}; Salvar-Lembretes; Atualizar-Mural})
+        $done=New-Object System.Windows.Controls.Button; $done.Content='Dar quitação'; $done.Tag=$lem.Id; $done.Style=$window.Resources['SoftButton']; $done.IsEnabled=-not $lem.Concluido
+        $done.Add_Click({param($sender,$e); Dar-Quitacao ([string]$sender.Tag)})
         [System.Windows.Controls.DockPanel]::SetDock($done,'Left'); [void]$actions.Children.Add($done)
         $delete=New-Object System.Windows.Controls.Button; $delete.Content='Excluir'; $delete.Tag=$lem.Id; $delete.Style=$window.Resources['SoftButton']; $delete.Foreground=[System.Windows.Media.BrushConverter]::new().ConvertFromString('#D84C63'); $delete.HorizontalAlignment='Right'
         $delete.Add_Click({param($sender,$e); if([System.Windows.MessageBox]::Show('Excluir este lembrete?','Confirmar','YesNo','Question') -eq 'Yes'){$script:lembretes=@($script:lembretes|Where-Object{$_.Id -ne [string]$sender.Tag}); Salvar-Lembretes; Atualizar-Mural}})
